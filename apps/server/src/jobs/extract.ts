@@ -8,6 +8,7 @@ import { JobCancelledError, runCmd } from "./run";
 import { createGeneratedArtifactCommitter, type ArtifactCommitResult } from "./generatedArtifacts";
 import { appendFramePool } from "../timeline";
 import { invalidateProjectUndo } from "../undo";
+import { findImageMagick } from "../media";
 
 /** 任务产出目标：项目帧 or 素材库 */
 type JobTarget = { kind: "project"; projectId: string } | { kind: "materials" };
@@ -59,6 +60,8 @@ export interface GeneratePayload {
   name?: string;
   /** 引用图绝对路径（服务端按 id 解析，防注入，顺序与请求一致） */
   referencePaths?: string[];
+  /** 生成前临时把引用图透明区域铺为纯色；不修改源素材。 */
+  flattenBackground?: string;
   /** 生成时选择的 provider id（缺省用第一个已配置 provider） */
   providerId?: string;
   /** 生成时单独指定的模型（api 必填其一；cli 填 {model} 占位符） */
@@ -254,73 +257,111 @@ export async function generateFrames(
   progress: (status: string) => void,
   enqueueMatting: EnqueueMatting,
   signal?: AbortSignal
-) {
+): Promise<{ artifacts: ArtifactCommitResult[]; warning?: string }> {
   if (signal?.aborted) throw new JobCancelledError();
-  const adapter = createProviderAdapter(p, progress, signal);
-  const name = (p.name?.trim().slice(0, 48) || p.prompt.trim().slice(0, 24)) || "生成素材";
-  const batchCount = p.batchCount ?? p.count;
-  const batchIndex = p.batchIndex ?? 0;
-  const artifacts = createGeneratedArtifactCommitter({
-    target: p.target,
-    count: batchCount,
-    autoMatting: p.autoMatting,
-    name,
-    folderId: p.folderId,
-    source: adapter.source,
-    prompt: p.prompt,
-    providerName: adapter.providerName,
-    model: p.model ?? (adapter.model || undefined),
-    size: p.size,
-    enqueueMatting,
-    intent: p.intent,
-    characterPartSetId: p.characterPartSetId,
-    referenceMaterialId: p.referenceMaterialId,
-    gridRows: p.gridRows,
-    gridCols: p.gridCols,
-  });
-  const committed: ArtifactCommitResult[] = [];
-
-  const produceAndCommit = async (kind: "image" | "video", index: number) => {
-    const allocation = artifacts.allocate(kind, index);
-    try {
-      await adapter.produce(allocation.path, index);
-      return artifacts.commit(allocation);
-    } catch (error) {
-      artifacts.discard(allocation);
-      throw error;
-    }
-  };
-
+  let backgroundStage: string | null = null;
+  let warning: string | undefined;
   try {
-    if (p.mediaKind === "video") {
-      progress("生成视频中");
-      const result = await produceAndCommit("video", 0);
-      committed.push(result);
-      if (result.kind === "video") {
-        progress("保存视频素材");
-        if (p.target.kind === "project") progress("视频已存入素材库，请打开素材「抽帧」后再导入项目");
+    let providerPayload = p;
+    if (p.flattenBackground && p.referencePaths?.length) {
+      const imageMagick = findImageMagick();
+      if (!imageMagick) {
+        warning = "未检测到 ImageMagick，已跳过垫底图";
+        progress(warning);
+      } else {
+        backgroundStage = join(STORAGE_ROOT, "staging", `genbg_${uid()}`);
+        mkdirSync(backgroundStage, { recursive: true });
+        const referencePaths: string[] = [];
+        for (let index = 0; index < p.referencePaths.length; index++) {
+          if (signal?.aborted) throw new JobCancelledError();
+          progress(`合成垫底图 ${index + 1}/${p.referencePaths.length}`);
+          const output = join(backgroundStage, `reference_${String(index).padStart(2, "0")}.png`);
+          await runCmd([
+            imageMagick,
+            p.referencePaths[index]!,
+            "-background",
+            p.flattenBackground,
+            "-alpha",
+            "remove",
+            "-alpha",
+            "off",
+            output,
+          ], undefined, signal);
+          referencePaths.push(output);
+        }
+        providerPayload = { ...p, referencePaths };
       }
-      return committed;
     }
 
-    for (let index = 0; index < p.count; index++) {
-      if (signal?.aborted) throw new JobCancelledError();
-      const artifactIndex = batchIndex + index;
-      progress(
-        p.target.kind === "project"
-          ? `生成第 ${artifactIndex + 1}/${batchCount} 帧`
-          : `生成第 ${artifactIndex + 1}/${batchCount} 个素材`
-      );
-      const result = await produceAndCommit("image", artifactIndex);
-      committed.push(result);
-      if (result.kind === "video") {
-        progress("CLI 产出为视频，已存入素材库（请自行抽帧）");
-        return committed;
+    // adapter 在构造时读取 referencePaths，必须在垫底合成之后创建。
+    const adapter = createProviderAdapter(providerPayload, progress, signal);
+    const name = (p.name?.trim().slice(0, 48) || p.prompt.trim().slice(0, 24)) || "生成素材";
+    const batchCount = p.batchCount ?? p.count;
+    const batchIndex = p.batchIndex ?? 0;
+    const artifacts = createGeneratedArtifactCommitter({
+      target: p.target,
+      count: batchCount,
+      autoMatting: p.autoMatting,
+      name,
+      folderId: p.folderId,
+      source: adapter.source,
+      prompt: p.prompt,
+      providerName: adapter.providerName,
+      model: p.model ?? (adapter.model || undefined),
+      size: p.size,
+      enqueueMatting,
+      intent: p.intent,
+      characterPartSetId: p.characterPartSetId,
+      referenceMaterialId: p.referenceMaterialId,
+      gridRows: p.gridRows,
+      gridCols: p.gridCols,
+    });
+    const committed: ArtifactCommitResult[] = [];
+
+    const produceAndCommit = async (kind: "image" | "video", index: number) => {
+      const allocation = artifacts.allocate(kind, index);
+      try {
+        await adapter.produce(allocation.path, index);
+        return artifacts.commit(allocation);
+      } catch (error) {
+        artifacts.discard(allocation);
+        throw error;
       }
+    };
+
+    try {
+      if (p.mediaKind === "video") {
+        progress("生成视频中");
+        const result = await produceAndCommit("video", 0);
+        committed.push(result);
+        if (result.kind === "video") {
+          progress("保存视频素材");
+          if (p.target.kind === "project") progress("视频已存入素材库，请打开素材「抽帧」后再导入项目");
+        }
+        return { artifacts: committed, warning };
+      }
+
+      for (let index = 0; index < p.count; index++) {
+        if (signal?.aborted) throw new JobCancelledError();
+        const artifactIndex = batchIndex + index;
+        progress(
+          p.target.kind === "project"
+            ? `生成第 ${artifactIndex + 1}/${batchCount} 帧`
+            : `生成第 ${artifactIndex + 1}/${batchCount} 个素材`
+        );
+        const result = await produceAndCommit("image", artifactIndex);
+        committed.push(result);
+        if (result.kind === "video") {
+          progress("CLI 产出为视频，已存入素材库（请自行抽帧）");
+          return { artifacts: committed, warning };
+        }
+      }
+      return { artifacts: committed, warning };
+    } finally {
+      // 已提交的部分产物即使遇到失败/取消也必须广播，并为 matting 状态补齐后续任务。
+      artifacts.finish();
     }
-    return committed;
   } finally {
-    // 已提交的部分产物即使遇到失败/取消也必须广播，并为 matting 状态补齐后续任务。
-    artifacts.finish();
+    if (backgroundStage) rmSync(backgroundStage, { recursive: true, force: true });
   }
 }

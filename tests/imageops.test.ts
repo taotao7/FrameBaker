@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   computeImageAnalysis,
   detectOpaqueComponents,
+  extractPalette,
   findSkeletalPartQualityIssues,
   imageAnalysisSimilarity,
+  removeColorPixels,
   reviewSkeletalGrid,
 } from "../apps/web/src/imageops/ops";
 
@@ -18,6 +20,62 @@ function image(width: number, height: number, paint: (set: (x: number, y: number
 
 const block = (x0: number, y0: number, w: number, h: number) => image(16, 16, (set) => {
   for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) set(x, y);
+});
+
+describe("色键抠图", () => {
+  test("tolerance=0 只清除精确匹配且不改变其他像素", () => {
+    const data = new Uint8ClampedArray([
+      10, 20, 30, 255,
+      10, 20, 31, 180,
+    ]);
+    expect(removeColorPixels(data, 2, 1, { targets: [[10, 20, 30]], tolerance: 0 })).toEqual(new Uint8ClampedArray([
+      10, 20, 30, 0,
+      10, 20, 31, 180,
+    ]));
+    expect(data[3]).toBe(255);
+  });
+
+  test("切比雪夫距离边界包含 tolerance，边界外保留", () => {
+    const data = new Uint8ClampedArray([
+      110, 91, 105, 255,
+      111, 91, 105, 255,
+    ]);
+    const output = removeColorPixels(data, 2, 1, { targets: [[100, 100, 100]], tolerance: 10 });
+    expect([output[3], output[7]]).toEqual([0, 255]);
+  });
+
+  test("softness 在阈值外线性乘以原 alpha", () => {
+    const data = new Uint8ClampedArray([
+      20, 20, 20, 200,
+      30, 30, 30, 200,
+      40, 40, 40, 200,
+    ]);
+    const output = removeColorPixels(data, 3, 1, { targets: [[0, 0, 0]], tolerance: 10, softness: 40 });
+    expect([output[3], output[7], output[11]]).toEqual([50, 100, 150]);
+  });
+
+  test("色盘跳过透明像素并返回主桶内的精确原色", () => {
+    const data = new Uint8ClampedArray([
+      18, 171, 52, 255,
+      18, 171, 52, 255,
+      19, 170, 50, 255,
+      255, 0, 255, 127,
+      200, 10, 10, 255,
+    ]);
+    expect(extractPalette(data, 5, 1, 2)).toEqual([[18, 171, 52], [200, 10, 10]]);
+  });
+
+  test("没有目标色时逐字节保持图像不变，tolerance=255 全清", () => {
+    const data = new Uint8ClampedArray([1, 2, 3, 99, 250, 251, 252, 255]);
+    expect(removeColorPixels(data, 2, 1, { targets: [], tolerance: 255 })).toEqual(data);
+    const output = removeColorPixels(data, 2, 1, { targets: [[0, 0, 0]], tolerance: 255 });
+    expect([output[3], output[7]]).toEqual([0, 0]);
+  });
+
+  test("有目标色但没有像素命中时图像不变", () => {
+    const data = new Uint8ClampedArray([12, 34, 56, 255, 78, 90, 123, 140]);
+    expect(removeColorPixels(data, 2, 1, { targets: [[240, 240, 240]], tolerance: 5 })).toEqual(data);
+  });
 });
 
 describe("骨骼分件图像质量检查", () => {

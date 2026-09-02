@@ -17,6 +17,7 @@ import PromptEnhancer from "./PromptEnhancer";
 import ProviderModelPicker, { resolveProviderSelection } from "./ProviderModelPicker";
 import SizePicker from "./SizePicker";
 import ReferencePicker, { type ReferenceSelection } from "./ReferencePicker";
+import GenBackgroundOption from "./GenBackgroundOption";
 
 interface Props {
   initialTab: "upload" | "cli";
@@ -55,6 +56,7 @@ export default function MaterialImportModal({ initialTab, initialReferenceMateri
   const [model, setModel] = useState("");
   const [size, setSize] = useState("");
   const [references, setReferences] = useState<ReferenceSelection[]>(() => initialReferenceMaterialId ? [{ kind: "material", id: initialReferenceMaterialId }] : []);
+  const [flattenBackground, setFlattenBackground] = useState<string | undefined>();
   const [count, setCount] = useState(4);
   const [mediaKind, setMediaKind] = useState<"image" | "video">("image"); // 生成内容：图片 / 视频（抽帧另做）
   const [generationLine, setGenerationLine] = useState<"frame" | "skeletal">(initialReferenceMaterialId ? "skeletal" : "frame");
@@ -125,6 +127,7 @@ export default function MaterialImportModal({ initialTab, initialReferenceMateri
         ...(mediaKind === "video" ? { mediaKind: "video" as const } : {}),
         ...(size ? { size } : {}),
         ...(references.length ? { references } : {}),
+        ...(references.length && flattenBackground ? { flattenBackground } : {}),
       });
       notify(
         generationLine === "skeletal" && skeletalMode === "parts"
@@ -327,6 +330,7 @@ export default function MaterialImportModal({ initialTab, initialReferenceMateri
               label={generationLine === "skeletal" ? t("skeletal.generate.referenceRequired") : undefined}
               description={generationLine === "skeletal" ? t("skeletal.generate.referenceDescription") : undefined}
             />}
+            <GenBackgroundOption value={flattenBackground} onChange={setFlattenBackground} reference={references[0]} />
 
             {mediaKind === "video" && (
               <div className="hint">{t("msg.ref_image_bailian_happyhorse_i2v_r2v_as_first_ref_frame")}</div>

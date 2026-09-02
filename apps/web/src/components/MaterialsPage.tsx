@@ -1,10 +1,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Bone, Check, Crop, Download, Eye, Film, Grid3x3, ImageDown, Layers3, Package, Pencil, PersonStanding, RefreshCw, Scan, Send, Sparkles, Trash2, Undo2, Upload, Wand2, X } from "lucide-react";
+import { Bone, Check, Crop, Download, Eye, Film, Grid3x3, ImageDown, Layers3, Package, Pencil, PersonStanding, Pipette, RefreshCw, Scan, Send, Sparkles, Trash2, Undo2, Upload, Wand2, X } from "lucide-react";
 import { SOURCE_COLORS } from "@framebaker/shared";
 import { api, materialFileUrl, materialImageUrl, wsClient, type Folder, type Material } from "../api";
 import { downloadMaterialImage, downloadMaterialImages } from "../export";
-import { cropImage, findOpaqueBounds } from "../imageops/client";
+import { cropImage, findOpaqueBounds, removeColor } from "../imageops/client";
+import type { RemoveColorOptions } from "../imageops/ops";
 import { useModalEscClose } from "../hooks/useModalEscClose";
 import { getLocale, useT } from "../i18n";
 import { askConfirm, notify } from "../notice";
@@ -19,6 +20,7 @@ import MaterialModal, { type MaterialDetailAction } from "./MaterialModal";
 import ProjectPickerModal from "./ProjectPickerModal";
 import VideoExtractModal from "./VideoExtractModal";
 import ContextMenu, { type CtxMenuItem } from "./ContextMenu";
+import ColorKeyModal from "./ColorKeyModal";
 import IconBtn from "./IconBtn";
 import { useMaterialEditor } from "./MaterialEditor";
 
@@ -107,6 +109,13 @@ export default function MaterialsPage() {
   const [renameTarget, setRenameTarget] = useState<Material | null>(null);
   const [renameName, setRenameName] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
+  const [colorKeyBatch, setColorKeyBatch] = useState<{
+    ids: string[];
+    firstId: string;
+    image: Blob;
+    title: string;
+    skipped: number;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [v, setV] = useState(0);
   /** 按素材 id 的缩略图版本：仅在对应素材图变化时 bump（替代全局 v 的全量破缓存，避免一变全变） */
@@ -479,6 +488,79 @@ export default function MaterialsPage() {
     }
   };
 
+  /** 打开单张/批量色键工具；预览第一张图片，确认后同参数顺序应用到全部图片。 */
+  const openColorKey = async (ids: string[]) => {
+    const imageMaterials = ids
+      .map((id) => materials.find((material) => material.id === id))
+      .filter((material): material is Material => Boolean(material && material.kind !== "video"));
+    if (!imageMaterials.length) {
+      notify(t("colorKey.noImages"), "info");
+      return;
+    }
+    setBusy(true);
+    try {
+      const first = imageMaterials[0]!;
+      const slot = first.processed_path ? "processed" : "raw";
+      const response = await fetch(materialImageUrl(first.id, imgV[first.id] ?? v, slot));
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setColorKeyBatch({
+        ids: imageMaterials.map((material) => material.id),
+        firstId: first.id,
+        image: await response.blob(),
+        title: first.name,
+        skipped: ids.length - imageMaterials.length,
+      });
+    } catch (error) {
+      notify(t("colorKey.failed", { msg: (error as Error).message }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applyColorKey = async (firstOutput: Blob, options: RemoveColorOptions) => {
+    const batch = colorKeyBatch;
+    if (!batch) return;
+    setBusy(true);
+    let ok = 0;
+    let skipped = batch.skipped;
+    let failed = 0;
+    const updated: string[] = [];
+    try {
+      for (const id of batch.ids) {
+        const material = materials.find((item) => item.id === id);
+        if (!material || material.kind === "video") {
+          skipped++;
+          continue;
+        }
+        try {
+          let output = firstOutput;
+          if (id !== batch.firstId) {
+            const slot = material.processed_path ? "processed" : "raw";
+            const response = await fetch(materialImageUrl(id, imgV[id] ?? v, slot));
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            output = await removeColor(await response.blob(), options);
+          }
+          // 色键属于抠图结果：保留 raw，始终建立/覆盖 processed。
+          await api.replaceMaterialImage(id, output, "processed");
+          updated.push(id);
+          ok++;
+        } catch {
+          failed++;
+        }
+      }
+      setColorKeyBatch(null);
+      setImgV((previous) => {
+        const next = { ...previous };
+        for (const id of updated) next[id] = (next[id] ?? 0) + 1;
+        return next;
+      });
+      await load();
+      toast(t("colorKey.batchResult", { ok, skipped, failed }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const detail = detailId ? (materials.find((m) => m.id === detailId) ?? null) : null;
   const extractMat = extractId ? (materials.find((m) => m.id === extractId) ?? null) : null;
   const layerMat = layerId ? (materials.find((m) => m.id === layerId) ?? null) : null;
@@ -507,6 +589,11 @@ export default function MaterialsPage() {
             label: t("msg.batch_matte_n", { n: selectedIds.size }),
             icon: <Wand2 size={13} />,
             onClick: () => void requestBatchMatting([...selectedIds]),
+          },
+          {
+            label: t("colorKey.batchAction"),
+            icon: <Pipette size={13} />,
+            onClick: () => void openColorKey([...selectedIds]),
           },
           {
             label: t("msg.auto_trim_n", { n: selectedIds.size }),
@@ -560,6 +647,11 @@ export default function MaterialsPage() {
                     label: t("msg.crop"),
                     icon: <Crop size={13} />,
                     onClick: () => openDetail(ctxMat.id, "crop"),
+                  },
+                  {
+                    label: t("colorKey.action"),
+                    icon: <Pipette size={13} />,
+                    onClick: () => void openColorKey([ctxMat.id]),
                   },
                   {
                     label: t("msg.grid_split"),
@@ -784,6 +876,13 @@ export default function MaterialsPage() {
                   <Wand2 size={14} />
                 </IconBtn>
                 <IconBtn
+                  title={t("colorKey.batchAction")}
+                  disabled={busy}
+                  onClick={() => void openColorKey([...selectedIds])}
+                >
+                  <Pipette size={14} />
+                </IconBtn>
+                <IconBtn
                   title={t("msg.batch_auto_trim")}
                   disabled={busy}
                   onClick={() => void requestBatchAutoCrop([...selectedIds])}
@@ -817,6 +916,18 @@ export default function MaterialsPage() {
             )}
           </AnimatePresence>
         </div>
+
+        <AnimatePresence>
+          {colorKeyBatch && (
+            <ColorKeyModal
+              image={colorKeyBatch.image}
+              title={colorKeyBatch.title}
+              batchCount={colorKeyBatch.ids.length}
+              onConfirm={applyColorKey}
+              onClose={() => setColorKeyBatch(null)}
+            />
+          )}
+        </AnimatePresence>
 
         <AnimatePresence>
           {renameTarget && (

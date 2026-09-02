@@ -28,11 +28,12 @@ export function register(server: McpServer) {
           kind: z.enum(["material", "frame"]),
           id: z.string(),
         })).max(10).describe("Ordered reference images; do not combine with legacy single-reference fields").optional(),
+        flattenBackground: z.string().regex(/^#[0-9a-fA-F]{6}$/).describe("Temporarily flatten transparent reference pixels onto this #RRGGBB color without changing source images").optional(),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     async (args) => {
-      const { projectId, prompt, count, autoMatting, providerId, model, size, mediaKind, fps, referenceMaterialId, referenceFrameId, references } = args;
+      const { projectId, prompt, count, autoMatting, providerId, model, size, mediaKind, fps, referenceMaterialId, referenceFrameId, references, flattenBackground } = args;
       const project = db.query("SELECT id FROM projects WHERE id = ?").get(projectId);
       if (!project) return err("项目不存在");
       const body = {
@@ -48,6 +49,7 @@ export function register(server: McpServer) {
         referenceMaterialId,
         referenceFrameId,
         references,
+        flattenBackground,
       };
       const ref = resolveReferencePaths(body);
       if (ref.error) return err(ref.error);
@@ -59,6 +61,7 @@ export function register(server: McpServer) {
         autoMatting: body.autoMatting,
         target: { kind: "project", projectId },
         referencePaths: ref.referencePaths,
+        flattenBackground,
         providerId,
         model,
         size,
@@ -91,12 +94,13 @@ export function register(server: McpServer) {
           kind: z.enum(["material", "frame"]),
           id: z.string(),
         })).max(10).describe("Ordered reference images; do not combine with legacy single-reference fields").optional(),
+        flattenBackground: z.string().regex(/^#[0-9a-fA-F]{6}$/).describe("Temporarily flatten transparent reference pixels onto this #RRGGBB color without changing source images").optional(),
         folderId: z.string().describe("Target folder UUID for generated materials").optional(),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     async (args) => {
-      const { prompt, count, autoMatting, name, providerId, model, size, mediaKind, fps, referenceMaterialId, referenceFrameId, references, folderId } = args;
+      const { prompt, count, autoMatting, name, providerId, model, size, mediaKind, fps, referenceMaterialId, referenceFrameId, references, flattenBackground, folderId } = args;
       const body = {
         prompt,
         count: count ?? 1,
@@ -110,6 +114,7 @@ export function register(server: McpServer) {
         referenceMaterialId,
         referenceFrameId,
         references,
+        flattenBackground,
         folderId: folderId ?? null,
       };
       const ref = resolveReferencePaths(body);
@@ -123,6 +128,7 @@ export function register(server: McpServer) {
         target: { kind: "materials" },
         name,
         referencePaths: ref.referencePaths,
+        flattenBackground,
         providerId,
         model,
         size,

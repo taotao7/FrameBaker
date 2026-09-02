@@ -1,6 +1,6 @@
 // 图像处理客户端：优先 Web Worker（OffscreenCanvas），不可用/出错时降级主线程 canvas
 
-import { computeImageAnalysis, computeOpaqueBounds, detectOpaqueComponents, warpImagePixels, type CropRect, type DetectComponentsOptions, type EraseStroke, type ImageAnalysis, type ImageOpRequest, type ImageOpResponse } from "./ops";
+import { computeImageAnalysis, computeOpaqueBounds, detectOpaqueComponents, extractPalette, removeColorPixels, warpImagePixels, type CropRect, type DetectComponentsOptions, type EraseStroke, type ImageAnalysis, type ImageOpRequest, type ImageOpResponse, type RemoveColorOptions, type RgbColor } from "./ops";
 
 
 let worker: Worker | null = null;
@@ -134,6 +134,40 @@ async function mainAnalyze(blob: Blob): Promise<ImageAnalysis> {
   }
 }
 
+async function mainRemoveColor(blob: Blob, options: RemoveColorOptions): Promise<Blob> {
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(bitmap, 0, 0);
+    const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+    const output = removeColorPixels(imageData.data, imageData.width, imageData.height, options);
+    ctx.putImageData(new ImageData(output, imageData.width, imageData.height), 0, 0);
+    return await new Promise((resolve, reject) =>
+      canvas.toBlob((result) => result ? resolve(result) : reject(new Error("toBlob 失败")), "image/png")
+    );
+  } finally {
+    bitmap.close();
+  }
+}
+
+async function mainPalette(blob: Blob, maxColors: number): Promise<RgbColor[]> {
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(bitmap, 0, 0);
+    const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+    return extractPalette(imageData.data, imageData.width, imageData.height, maxColors);
+  } finally {
+    bitmap.close();
+  }
+}
+
 async function mainWarp(blob: Blob, grid: [number, number], points: number[]): Promise<Blob> {
   const bitmap = await createImageBitmap(blob);
   try {
@@ -246,5 +280,27 @@ export async function analyzeImage(blob: Blob): Promise<ImageAnalysis> {
     return r.analysis;
   } catch {
     return mainAnalyze(blob);
+  }
+}
+
+/** 按选定颜色移除背景并编码 PNG；worker 失败自动降级主线程。 */
+export async function removeColor(blob: Blob, options: RemoveColorOptions): Promise<Blob> {
+  try {
+    const response = await runInWorker({ op: "remove-color", blob, removeColorOptions: options });
+    if (!response.ok || !response.blob) throw new Error(response.error ?? "remove-color 失败");
+    return response.blob;
+  } catch {
+    return mainRemoveColor(blob, options);
+  }
+}
+
+/** 提取图片主色；透明度低于 128 的像素不参与统计。 */
+export async function palette(blob: Blob, maxColors = 12): Promise<RgbColor[]> {
+  try {
+    const response = await runInWorker({ op: "palette", blob, maxColors });
+    if (!response.ok || !response.colors) throw new Error(response.error ?? "palette 失败");
+    return response.colors;
+  } catch {
+    return mainPalette(blob, maxColors);
   }
 }

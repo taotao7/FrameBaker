@@ -239,6 +239,17 @@ Job queue is in-memory (unfinished jobs are lost on restart); GIF frame delays a
 <!-- latest-changelog:start -->
 ## Latest Changes
 
+### [0.5.0](docs/CHANGELOG.md#050---2026-09-02) · 2026-09-02
+
+#### Added
+
+- Added worker-backed color-key matting for image materials with canvas eyedropper sampling, dominant-color palettes, 0–255 Chebyshev tolerance, optional edge softness, live preview, and single or batch application while preserving source images.
+- Added optional solid reference backgrounds to all generation dialogs, with high-contrast presets, custom colors, palette-based recommendations, and temporary server-side ImageMagick flattening that never modifies source materials or frames.
+
+#### Removed
+
+- Removed the target-skeleton selector from reference decomposition: it only influenced the generation prompt and grid rows/columns, downstream split, naming, and binding never consumed it, and `targetSkeletonId` was never accepted by the server; the split grid is back to manual rows/columns plus the humanoid default.
+
 ### [0.4.0](docs/CHANGELOG.md#040---2026-08-20) · 2026-08-20
 
 #### Added
@@ -267,30 +278,6 @@ Job queue is in-memory (unfinished jobs are lost on restart); GIF frame delays a
 - Made the selected attachment's transform outline capture canvas drags, so overlapping parts cannot redirect a Warp or transform edit to another layer.
 - Made erase strokes reach the exact image boundary when dragged outside the editor, and stopped near-transparent antialias residue from falsely triggering skeletal-part edge warnings.
 - Fixed the skeletal project editor not reflecting animation-asset saves: the live preview canvas and the skeleton/binding views now subscribe to `animation_assets_changed` and refetch the current clip, skeleton, and asset list as soon as the motion editor (or any other page) persists changes.
-
-### [0.3.1](docs/CHANGELOG.md#031---2026-08-13) · 2026-08-13
-
-#### Changed
-
-- Split multi-image generation requests into independently scheduled jobs under the global queue concurrency limit, return all IDs through `jobIds` while preserving `jobId`, and refresh an open material library as each generated material completes.
-- Changed all default action prompts to let idle, movement, attack, casting, hit, and defeat motions fit the referenced character's appearance, equipment, and abilities instead of assuming specific motions; explicit extra descriptions still specify the move.
-- Video generation prompts (both prompt enhancement and default action videos) now require a slightly wider locked camera with about 15% safe margin on every edge, keeping the whole subject and its full motion trajectory inside the frame so limbs and props are never cropped at the boundary.
-
-#### Added
-
-- Added independent track × step attack-effect cells—including empty image cells—with live composited tapered flame/energy/ink drawing, five deterministic slash/bristle/dry/spark/echo brush textures, an effect-only delete action, transform controls, cross-step copy/paste, playback, undo, and export baking across every animation axis.
-- Added explicit animation export choices for independent PNG sequences and a single sprite sheet that automatically wraps into rows within browser canvas limits, both with frame metadata JSON.
-- Added folder filtering, select-all for current results, and Shift range selection when importing materials into a project.
-- Added quick character eight-view generation from an image material: a reference-locked 3×3 turnaround sheet laid out as 3 / 2 / 3 views around an empty center cell; grid split defaults to 3×3 and skips that center cell.
-
-#### Fixed
-
-- Kept the canvas zoom and pan viewpoint stable while switching timeline steps or drawing effects; fitting now runs only on initial load, explicit fit, resize, or playback mode boundaries.
-- Made sprite-sheet exports scan shared opaque content bounds, use a compact row-major grid, and composite through per-cell canvases so large sheets no longer contain huge transparent gaps or dropped middle frames.
-- Refreshed the persistent job panel against server state whenever returning to the material library, recovering status updates missed while on another page.
-- Strengthened the character eight-view generation prompt so every occupied 3×3 cell explicitly requires a distinct full-body heading instead of allowing the reference orientation to be repeated.
-- Fixed grid split uploads failing validation because multipart JSON metadata was parsed into an object, and now surface the first per-cell upload error when every cell fails.
-- Prevented the video frame picker workspace from overlapping its selection and submit areas on short desktop viewports, and made the `M` capture shortcut work after focusing timeline and button controls.
 
 [View the complete changelog →](docs/CHANGELOG.md)
 <!-- latest-changelog:end -->

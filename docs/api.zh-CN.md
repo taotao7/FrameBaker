@@ -181,6 +181,8 @@ provider 解析：传了 `providerId` 按 id 找（找不到 400）；缺省用�
 
 引用图通过有序 `references` 数组传入（最多 10 张）：`{ "kind": "material" | "frame", "id": "…" }`，可以混合素材与项目帧。服务端逐个按 id 解析文件路径（优先 processed，否则 raw），防止客户端路径注入。旧版单图字段 `referenceMaterialId` / `referenceFrameId` 继续兼容，但不能与 `references` 同传。OpenAI 兼容、百炼、Gemini 图片协议支持多图；MiniMax 与旧版 CLI 模板超过一张时会明确拒绝。
 
+可选 `flattenBackground` 必须是 `#RRGGBB` 色值，且仅在存在引用图时生效。调用 provider 前，服务端用 ImageMagick 把每张已解析引用图临时合成到该纯色背景，文件放入 `storage/staging/genbg_*`；不会修改源素材/项目帧，任务完成、失败或取消后都会清理暂存目录。未安装 ImageMagick 时继续使用原引用图生成，并在已完成任务中保留“未检测到 ImageMagick，已跳过垫底图”警告。
+
 ## 素材库 /api/materials
 
 素材先在素材库生成/上传、抠图、对比，确认后再导入项目成为帧。素材的 `source` 语义与帧一致（`cli`/`api`/`dashscope`/`gemini`/`minimax`/`upload`/`gif`/`mp4`/`image`/`duplicate`；AI 生成按实际 provider 类型写入，不再一律 `cli`），`status` 为 `raw`（原图）/ `matted`（已抠图）。素材与项目均可挂 `folder_id`（见 `/api/folders`）。
@@ -220,7 +222,7 @@ curl -F "file=@walk.gif" -F "autoMatting=true" http://localhost:3000/api/materia
 
 ### POST /api/materials/generate
 
-`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "references": [{ "kind": "material", "id": "…" }] }` → `{ "jobId": "…", "jobIds": ["…", "…", "…", "…"] }`（provider 解析、图片独立任务与多引用图规则同 `/api/import/generate`）。每个素材任务完成时都会广播 `materials_changed`，停留在素材库时会逐个刷新。可选 `name`：素材命名基准（缺省取 prompt 前 24 字符），产出命名为 `name #i`（count>1）——素材详情「多动作生成」按「素材名_动作」传入。支持 `mediaKind: "video"`：只生成并保存视频素材（`kind=video`），**不抽帧**；完成后用下方 extract 接口拆帧。骨骼分件生成支持成对提供 1–8 的 `gridRows` / `gridCols`，生成素材 metadata 和网格切分编辑器都会保留该布局；人形默认值为 `gridRows: 3`、`gridCols: 4`（12 个部件）。`skeletal-character` 两阶段请求可把相同字段放入 `followUp`，用于后续分件表。骨骼请求不再要求预先创建或传入 `characterPartSetId`：缺省时服务端自动建立内部部件集，并随 `jobId` 返回其 ID；显式 ID 仍为 API 兼容保留。
+`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "references": [{ "kind": "material", "id": "…" }], "flattenBackground": "#FF00FF" }` → `{ "jobId": "…", "jobIds": ["…", "…", "…", "…"] }`（provider 解析、图片独立任务、多引用图及临时 `flattenBackground` 处理规则同 `/api/import/generate`）。每个素材任务完成时都会广播 `materials_changed`，停留在素材库时会逐个刷新。可选 `name`：素材命名基准（缺省取 prompt 前 24 字符），产出命名为 `name #i`（count>1）——素材详情「多动作生成」按「素材名_动作」传入。支持 `mediaKind: "video"`：只生成并保存视频素材（`kind=video`），**不抽帧**；完成后用下方 extract 接口拆帧。骨骼分件生成支持成对提供 1–8 的 `gridRows` / `gridCols`，生成素材 metadata 和网格切分编辑器都会保留该布局；人形默认值为 `gridRows: 3`、`gridCols: 4`（12 个部件）。`skeletal-character` 两阶段请求可把相同字段放入 `followUp`，用于后续分件表。骨骼请求不再要求预先创建或传入 `characterPartSetId`：缺省时服务端自动建立内部部件集，并随 `jobId` 返回其 ID；显式 ID 仍为 API 兼容保留。
 
 ### POST /api/materials/:id/extract
 
@@ -503,7 +505,7 @@ FrameBaker 正在 http://localhost:3000 运行，MCP 端点为 /mcp（Streamable
 // 请求
 { "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "my-client", "version": "1.0" } } }
 // 响应
-{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.4.0" } } }
+{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.5.0" } } }
 ```
 
 握手后发送 `notifications/initialized` 通知（无需响应），随后可 `tools/list` 和 `tools/call`。2026-07-28 客户端无需握手，直接调用即可。

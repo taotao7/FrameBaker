@@ -1,7 +1,7 @@
 // 图像处理 worker：解码 / 透明边扫描 / 剪裁编码都在 worker 线程，避免阻塞 UI
 // 注：工程 lib 只有 DOM（无 webworker），这里用模块级 declare 收窄 postMessage 签名
 
-import { computeImageAnalysis, computeOpaqueBounds, detectOpaqueComponents, warpImagePixels, type DetectComponentsOptions, type EraseStroke, type ImageOpRequest, type ImageOpResponse } from "./ops";
+import { computeImageAnalysis, computeOpaqueBounds, detectOpaqueComponents, extractPalette, removeColorPixels, warpImagePixels, type DetectComponentsOptions, type EraseStroke, type ImageOpRequest, type ImageOpResponse, type RemoveColorOptions } from "./ops";
 
 
 declare function postMessage(message: ImageOpResponse): void;
@@ -63,6 +63,24 @@ async function warpFromBitmap(bitmap: ImageBitmap, grid: [number, number], point
   return canvas.convertToBlob({ type: "image/png" });
 }
 
+async function removeColorFromBitmap(bitmap: ImageBitmap, options: RemoveColorOptions) {
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const ctx = canvas.getContext("2d")!;
+  ctx.drawImage(bitmap, 0, 0);
+  const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+  const output = removeColorPixels(imageData.data, imageData.width, imageData.height, options);
+  ctx.putImageData(new ImageData(output, imageData.width, imageData.height), 0, 0);
+  return canvas.convertToBlob({ type: "image/png" });
+}
+
+function paletteFromBitmap(bitmap: ImageBitmap, maxColors: number) {
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const ctx = canvas.getContext("2d")!;
+  ctx.drawImage(bitmap, 0, 0);
+  const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+  return extractPalette(imageData.data, imageData.width, imageData.height, maxColors);
+}
+
 async function editFromBitmap(bitmap: ImageBitmap, strokes: EraseStroke[], quarterTurns: number, flipHorizontal: boolean) {
   const source = new OffscreenCanvas(bitmap.width, bitmap.height);
   const sourceCtx = source.getContext("2d")!;
@@ -81,7 +99,7 @@ async function editFromBitmap(bitmap: ImageBitmap, strokes: EraseStroke[], quart
 }
 
 self.onmessage = async (e: MessageEvent<ImageOpRequest>) => {
-  const { id, op, blob, rect, strokes, quarterTurns, flipHorizontal, componentOptions, warpGrid, warpPoints } = e.data;
+  const { id, op, blob, rect, strokes, quarterTurns, flipHorizontal, componentOptions, warpGrid, warpPoints, removeColorOptions, maxColors } = e.data;
   let bitmap: ImageBitmap | null = null;
   try {
     bitmap = await createImageBitmap(blob);
@@ -98,6 +116,12 @@ self.onmessage = async (e: MessageEvent<ImageOpRequest>) => {
       if (!warpGrid || !warpPoints) throw new Error("warp 缺少 warpGrid/warpPoints");
       const out = await warpFromBitmap(bitmap, warpGrid, warpPoints);
       postMessage({ id, ok: true, blob: out });
+    } else if (op === "remove-color") {
+      if (!removeColorOptions) throw new Error("remove-color 缺少参数");
+      const out = await removeColorFromBitmap(bitmap, removeColorOptions);
+      postMessage({ id, ok: true, blob: out });
+    } else if (op === "palette") {
+      postMessage({ id, ok: true, colors: paletteFromBitmap(bitmap, maxColors ?? 12) });
     } else if (op === "analyze") {
       const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
       const ctx = canvas.getContext("2d")!;

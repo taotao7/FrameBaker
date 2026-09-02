@@ -54,7 +54,7 @@ const JobItem = memo(function JobItem({
         <span className="kind">{t(TYPE_LABEL[job.type] ?? job.type)}</span>
         <span className="prog" title={job.error ?? job.progress ?? undefined}>
           {job.status === "done"
-            ? t("msg.done")
+            ? (job.progress && job.progress !== "完成" ? job.progress : t("msg.done"))
             : job.status === "error"
               ? t("msg.failed")
               : job.status === "cancelled"
@@ -304,7 +304,7 @@ export default function JobPanel({ syncOnEnter = false }: { syncOnEnter?: boolea
           patchJob(id, { progress: (p.progress as string) ?? null });
           break;
         case "job_done":
-          patchJob(id, { status: "done", progress: "完成", error: null });
+          patchJob(id, { status: "done", progress: (p.progress as string) ?? "完成", error: null });
           break;
         case "job_error":
           patchJob(id, { status: "error", error: (p.error as string) ?? null });

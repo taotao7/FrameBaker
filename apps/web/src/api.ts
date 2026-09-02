@@ -82,6 +82,8 @@ interface GenerateBody {
 
   /** 有序引用图，最多 10 张；可混合素材与项目帧。 */
   references?: Array<{ kind: "material" | "frame"; id: string }>;
+  /** 生成前临时把引用图透明区域铺为纯色，不修改源图。 */
+  flattenBackground?: string;
 
   providerId?: string;
   model?: string;

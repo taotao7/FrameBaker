@@ -34,6 +34,16 @@ export interface EraseStroke {
 
 }
 
+export type RgbColor = [number, number, number];
+
+export interface RemoveColorOptions {
+  targets: RgbColor[];
+  /** 切比雪夫距离阈值：0 仅精确匹配，255 清除全部颜色。 */
+  tolerance: number;
+  /** 阈值外的 alpha 线性过渡带宽；0 保持像素风硬边。 */
+  softness?: number;
+}
+
 /** worker 消息协议（Blob 走 structured clone，无需手动 transfer） */
 /** 连通域自动检测参数（阅读顺序返回不透明部件包围盒）。 */
 export interface DetectComponentsOptions {
@@ -49,7 +59,7 @@ export interface DetectComponentsOptions {
 export interface ImageOpRequest {
   id: number;
 
-  op: "bounds" | "crop" | "analyze" | "edit" | "components" | "warp";
+  op: "bounds" | "crop" | "analyze" | "edit" | "components" | "warp" | "remove-color" | "palette";
 
   blob: Blob;
   rect?: CropRect;
@@ -61,6 +71,8 @@ export interface ImageOpRequest {
   warpGrid?: [number, number];
   /** 自由变形节点归一化位移（行优先，dx 相对宽、dy 相对高），长度 2·cols·rows。 */
   warpPoints?: number[];
+  removeColorOptions?: RemoveColorOptions;
+  maxColors?: number;
 }
 
 export interface ImageOpResponse {
@@ -70,7 +82,100 @@ export interface ImageOpResponse {
   rects?: CropRect[];
   blob?: Blob;
   analysis?: ImageAnalysis;
+  colors?: RgbColor[];
   error?: string;
+}
+
+/**
+ * 按目标色的最小切比雪夫距离清除像素。RGB 保持不变，只按原 alpha 乘以
+ * 阈值外过渡比例，因而不会把原本半透明/透明像素重新变为不透明。
+ */
+export function removeColorPixels(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  options: RemoveColorOptions,
+): Uint8ClampedArray<ArrayBuffer> {
+  const out = new Uint8ClampedArray(data);
+  if (!options.targets.length) return out;
+  const tolerance = Math.max(0, Math.min(255, Math.round(options.tolerance)));
+  const softness = Math.max(0, Math.min(64, Math.round(options.softness ?? 0)));
+  const pixels = Math.min(width * height, Math.floor(data.length / 4));
+  for (let pixel = 0; pixel < pixels; pixel++) {
+    const offset = pixel * 4;
+    let distance = 255;
+    for (const target of options.targets) {
+      distance = Math.min(
+        distance,
+        Math.max(
+          Math.abs(data[offset]! - target[0]),
+          Math.abs(data[offset + 1]! - target[1]),
+          Math.abs(data[offset + 2]! - target[2]),
+        ),
+      );
+      if (distance === 0) break;
+    }
+    if (distance <= tolerance) {
+      out[offset + 3] = 0;
+    } else if (softness > 0 && distance < tolerance + softness) {
+      out[offset + 3] = Math.round(data[offset + 3]! * (distance - tolerance) / softness);
+    }
+  }
+  return out;
+}
+
+/**
+ * 提取主色：第一遍按 RGB 各 5 个高位聚类，第二遍只在主桶内统计精确颜色。
+ * 返回桶内出现最多的真实 RGB，而非量化中心，保证色盘颜色在 tolerance=0 时仍可精确命中。
+ */
+export function extractPalette(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  maxColors: number,
+): RgbColor[] {
+  const limit = Math.max(0, Math.floor(maxColors));
+  if (limit === 0) return [];
+  const pixels = Math.min(width * height, Math.floor(data.length / 4));
+  const bucketCounts = new Uint32Array(1 << 15);
+  for (let pixel = 0; pixel < pixels; pixel++) {
+    const offset = pixel * 4;
+    if (data[offset + 3]! < 128) continue;
+    const bucket = (data[offset]! >> 3) << 10 | (data[offset + 1]! >> 3) << 5 | data[offset + 2]! >> 3;
+    bucketCounts[bucket]!++;
+  }
+  const buckets = Array.from(bucketCounts, (count, bucket) => ({ bucket, count }))
+    .filter((entry) => entry.count > 0)
+    .sort((a, b) => b.count - a.count || a.bucket - b.bucket)
+    .slice(0, limit);
+  if (!buckets.length) return [];
+
+  const selected = new Map(buckets.map((entry, index) => [entry.bucket, index]));
+  const exactCounts = buckets.map(() => new Map<number, number>());
+  for (let pixel = 0; pixel < pixels; pixel++) {
+    const offset = pixel * 4;
+    if (data[offset + 3]! < 128) continue;
+    const red = data[offset]!;
+    const green = data[offset + 1]!;
+    const blue = data[offset + 2]!;
+    const bucket = (red >> 3) << 10 | (green >> 3) << 5 | blue >> 3;
+    const index = selected.get(bucket);
+    if (index == null) continue;
+    const color = red << 16 | green << 8 | blue;
+    const counts = exactCounts[index]!;
+    counts.set(color, (counts.get(color) ?? 0) + 1);
+  }
+  return exactCounts.map((counts) => {
+    let bestColor = 0;
+    let bestCount = -1;
+    for (const [color, count] of counts) {
+      if (count > bestCount) {
+        bestColor = color;
+        bestCount = count;
+      }
+    }
+    return [bestColor >> 16 & 255, bestColor >> 8 & 255, bestColor & 255];
+  });
 }
 
 /** 扫描 alpha>0 像素的最小包围盒（像素图「裁透明边」）；全透明返回 null */

@@ -174,6 +174,7 @@ async function runJob(id: string) {
   controllers.set(id, ac);
   const signal = ac.signal;
   let generatedReferenceId: string | undefined;
+  let completionProgress = "完成";
   // 相同 progress 文本去重（如视频轮询每 5s 的重复心跳），避免无谓 DB 写 + 全局广播
   let lastProgress = "";
   const report = (p: string) => {
@@ -191,7 +192,8 @@ async function runJob(id: string) {
       await extractFrames(payload.extract, report, enqueueMatting, signal);
     } else if (job.type === "generate_frames" && payload.generate) {
       const generated = await generateFrames(payload.generate, report, enqueueMatting, signal);
-      if (payload.generate.followUp && generated[0]?.kind === "image") generatedReferenceId = generated[0].id;
+      if (payload.generate.followUp && generated.artifacts[0]?.kind === "image") generatedReferenceId = generated.artifacts[0].id;
+      if (generated.warning) completionProgress = `完成（${generated.warning}）`;
     } else if (job.type === "matting" && payload.matting) {
       if (signal.aborted) throw new JobCancelledError();
       const warn = await matte(payload.matting.target, payload.matting.id, signal);
@@ -203,8 +205,8 @@ async function runJob(id: string) {
     }
     if (signal.aborted) throw new JobCancelledError();
     if (generatedReferenceId && payload.generate) enqueueGeneratedFollowUp(payload.generate, generatedReferenceId);
-    setJob(id, "done", "完成");
-    broadcast("job_done", { id, projectId: job.project_id, type: job.type });
+    setJob(id, "done", completionProgress);
+    broadcast("job_done", { id, projectId: job.project_id, type: job.type, progress: completionProgress });
   } catch (err) {
     if (err instanceof JobCancelledError || signal.aborted) {
       setJob(id, "cancelled", "已取消", null);

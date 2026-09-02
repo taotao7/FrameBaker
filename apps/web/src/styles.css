@@ -3805,6 +3805,58 @@ body.resizing-row * {
   color: var(--text-muted);
 }
 
+/* ===== 色键抠图 ===== */
+.color-key-mask { z-index: 210; }
+.color-key-modal {
+  box-sizing: border-box;
+  width: min(1080px, calc(100vw - 48px));
+  height: min(720px, calc(100dvh - 48px));
+  max-height: none;
+  overflow: hidden;
+}
+.color-key-modal h2 { display: flex; align-items: center; gap: 8px; margin: 0; }
+.color-key-sub { margin-top: 3px; color: var(--text-muted); font-size: 11px; }
+.color-key-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 14px; flex: 1; min-height: 0; }
+.color-key-stage {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  background: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 16px 16px;
+  box-shadow: inset 0 0 0 2px var(--border);
+}
+.color-key-stage canvas { display: block; cursor: crosshair; touch-action: none; }
+.color-key-previewing { position: absolute; right: 8px; bottom: 8px; padding: 3px 7px; background: color-mix(in srgb, var(--bg) 82%, transparent); color: var(--text-muted); font-size: 11px; pointer-events: none; }
+.color-key-controls { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow-y: auto; padding: 2px; }
+.color-key-controls section { display: grid; gap: 7px; }
+.color-key-controls section > label, .color-key-range > span { color: var(--text); font-size: 12px; }
+.color-key-swatches { display: grid; grid-template-columns: repeat(6, 30px); gap: 7px; min-height: 30px; }
+.color-key-swatches.selected { padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.color-key-swatch { display: grid; width: 30px; height: 30px; padding: 0; place-items: center; border: 2px solid var(--border); color: var(--accent-contrast); cursor: pointer; box-shadow: 2px 2px 0 var(--elevated); }
+.color-key-swatch:hover { border-color: var(--accent); transform: translateY(-1px); }
+.color-key-swatch svg { filter: drop-shadow(1px 1px 0 var(--bg)); }
+.color-key-range { display: grid; gap: 5px; }
+.color-key-range > span { display: flex; justify-content: space-between; }
+.color-key-range b { color: var(--accent); }
+.color-key-range input { width: 100%; accent-color: var(--accent); }
+@media (max-width: 760px) {
+  .color-key-workspace { grid-template-columns: 1fr; grid-template-rows: minmax(280px, 1fr) auto; }
+  .color-key-controls { max-height: 260px; }
+}
+
+/* ===== 生成引用图临时垫底 ===== */
+.gen-background-option { display: grid; gap: 9px; padding: 10px; border: 1px solid var(--border); background: var(--surface); }
+.gen-background-option.enabled { border-color: var(--accent); }
+.gen-background-toggle { align-items: flex-start; }
+.gen-background-toggle > span { display: grid; gap: 2px; }
+.gen-background-toggle small { color: var(--text-muted); font-size: 10px; font-weight: 400; line-height: 1.45; }
+.gen-background-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; padding-left: 23px; }
+.gen-background-swatches { display: flex; gap: 6px; }
+.gen-background-swatches button { width: 27px; height: 27px; padding: 0; border: 2px solid var(--border); cursor: pointer; box-shadow: 2px 2px 0 var(--elevated); }
+.gen-background-swatches button.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 2px 2px 0 var(--elevated); }
+.gen-background-custom { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 11px; }
+.gen-background-custom input[type="color"] { width: 29px; height: 27px; padding: 1px; border: 1px solid var(--border); background: var(--surface-raised); cursor: pointer; }
+.gen-background-custom code { color: var(--text); font-size: 10px; }
+
 /* ===== 素材编辑器：单 Canvas 预览，笔迹仅在 rAF 内重绘 ===== */
 .material-editor-mask {
   z-index: 220;

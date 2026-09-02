@@ -20,6 +20,7 @@ import ProviderModelPicker, { resolveProviderSelection } from "./ProviderModelPi
 import SizePicker from "./SizePicker";
 import ReferencePicker, { type ReferenceSelection } from "./ReferencePicker";
 import { useMaterialEditor } from "./MaterialEditor";
+import GenBackgroundOption from "./GenBackgroundOption";
 
 type Tab = "materials" | "upload" | "cli";
 
@@ -76,6 +77,7 @@ export default function ImportModal({ projectId, axisId, trackId, startStepId, t
   const [model, setModel] = useState("");
   const [size, setSize] = useState("");
   const [references, setReferences] = useState<ReferenceSelection[]>([]);
+  const [flattenBackground, setFlattenBackground] = useState<string | undefined>();
   const [count, setCount] = useState(4);
   const [mediaKind, setMediaKind] = useState<"image" | "video">("image"); // 生成内容：图片 / 视频（抽帧另做）
   const [cropDismissed, setCropDismissed] = useState(false); // 「是否需要剪裁」确认行已回答
@@ -217,6 +219,7 @@ export default function ImportModal({ projectId, axisId, trackId, startStepId, t
         ...(mediaKind === "video" ? { mediaKind: "video" as const } : {}),
         ...(size ? { size } : {}),
         ...(references.length ? { references } : {}),
+        ...(references.length && flattenBackground ? { flattenBackground } : {}),
       });
       notify(
         mediaKind === "video"
@@ -496,6 +499,7 @@ export default function ImportModal({ projectId, axisId, trackId, startStepId, t
               <div className="hint">{t("msg.video_goes_to_materials_first_extract_frames_there_then")}</div>
             )}
             <ReferencePicker value={references} onChange={setReferences} showFrames projectId={projectId} />
+            <GenBackgroundOption value={flattenBackground} onChange={setFlattenBackground} reference={references[0]} />
             {mediaKind === "video" && (
               <div className="hint">{t("msg.ref_image_bailian_happyhorse_i2v_r2v_as_first_ref_frame")}</div>
             )}

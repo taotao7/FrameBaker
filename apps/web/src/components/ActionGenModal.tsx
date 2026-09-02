@@ -24,6 +24,7 @@ import ProviderModelPicker, { resolveProviderSelection } from "./ProviderModelPi
 import PxSelect from "./PxSelect";
 import ReferencePicker, { type ReferenceSelection } from "./ReferencePicker";
 import SizePicker from "./SizePicker";
+import GenBackgroundOption, { GEN_BACKGROUND_PRESETS, readRememberedGenBackground } from "./GenBackgroundOption";
 
 interface Props {
   material: Material;
@@ -59,6 +60,7 @@ export default function ActionGenModal({ material: m, v, initialPreset = "action
   const directionSuffix = "_8directions_3x3";
   const directionSheetName = `${base.slice(0, 48 - directionSuffix.length)}${directionSuffix}`;
   const characterPrompt = typeof m.metadata.prompt === "string" ? m.metadata.prompt : null;
+  const rememberedBackground = useMemo(readRememberedGenBackground, []);
 
   const [mediaKind, setMediaKind] = useState<"image" | "video">("image");
   const [directionMode, setDirectionMode] = useState(initialPreset === "directions");
@@ -76,6 +78,9 @@ export default function ActionGenModal({ material: m, v, initialPreset = "action
   const [size, setSize] = useState("");
   const [poseReference, setPoseReference] = useState<ReferenceSelection | null>(() =>
     initialPoseReferenceMaterialId ? { kind: "material", id: initialPoseReferenceMaterialId } : null
+  );
+  const [flattenBackground, setFlattenBackground] = useState<string | undefined>(() =>
+    m.processed_path ? rememberedBackground ?? GEN_BACKGROUND_PRESETS[0] : undefined
   );
   const [submitting, setSubmitting] = useState(false);
   const cfg = useServerConfig();
@@ -185,6 +190,7 @@ export default function ActionGenModal({ material: m, v, initialPreset = "action
           name: directionSheetName,
           referenceMaterialId: m.id,
           folderId: m.folder_id,
+          ...(flattenBackground ? { flattenBackground } : {}),
           ...sel,
           ...(size ? { size } : {}),
         });
@@ -202,6 +208,7 @@ export default function ActionGenModal({ material: m, v, initialPreset = "action
           folderId: m.folder_id,
           mediaKind: "video",
           referenceMaterialId: m.id,
+          ...(flattenBackground ? { flattenBackground } : {}),
           ...sel,
           ...(size ? { size } : {}),
         });
@@ -224,6 +231,7 @@ export default function ActionGenModal({ material: m, v, initialPreset = "action
           referenceMaterialId: m.id,
           ...(poseReference?.kind === "material" ? { poseReferenceMaterialId: poseReference.id } : {}),
           folderId: m.folder_id,
+          ...(flattenBackground ? { flattenBackground } : {}),
           ...sel,
           ...(size ? { size } : {}),
         });
@@ -501,6 +509,13 @@ export default function ActionGenModal({ material: m, v, initialPreset = "action
         />
         {!isVideo && <SizePicker providerId={providerId} value={size} onChange={setSize} />}
         {isVideo && <SizePicker providerId={providerId} value={size} onChange={setSize} forVideo />}
+        <GenBackgroundOption
+          value={flattenBackground}
+          onChange={setFlattenBackground}
+          reference={{ kind: "material", id: m.id }}
+          version={v}
+          autoRecommend={Boolean(m.processed_path && !rememberedBackground)}
+        />
         {!isVideo && <MattingOption checked={autoMatting} onChange={setAutoMatting} />}
 
         <div className="modal-actions">

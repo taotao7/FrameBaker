@@ -13,6 +13,11 @@ let thumbnailRunning = 0;
 const thumbnailQueue: Array<() => void> = [];
 const thumbnailInflight = new Map<string, Promise<string | null>>();
 
+/** Windows 自带 convert.exe 不是 ImageMagick；其他平台兼容 IM6 的 convert。 */
+export function findImageMagick(): string | null {
+  return Bun.which("magick") ?? (process.platform === "win32" ? null : Bun.which("convert"));
+}
+
 /** 图片列表只允许有限尺寸，避免把缩略图接口当成原图代理。 */
 export function parseThumbnailSize(value: unknown): number | null {
   if (typeof value !== "string" || !/^\d+$/.test(value)) return null;
@@ -63,8 +68,7 @@ export function getThumbnailPath(sourcePath: string, size: number): Promise<stri
 
   const promise = runThumbnailTask(async () => {
     if (existsSync(keyed.output)) return keyed.output;
-    // Windows 自带的 convert.exe 不是 ImageMagick，不能作为后备命令。
-    const imageMagick = Bun.which("magick") ?? (process.platform === "win32" ? null : Bun.which("convert"));
+    const imageMagick = findImageMagick();
     const ffmpeg = imageMagick ? null : Bun.which("ffmpeg");
     if (!imageMagick && !ffmpeg) return null;
     mkdirSync(THUMBNAIL_ROOT, { recursive: true });

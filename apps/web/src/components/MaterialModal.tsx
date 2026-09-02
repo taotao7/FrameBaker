@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Bone, Crop, Film, Grid3x3, Layers3, MoveHorizontal, Pencil, PersonStanding, RefreshCw, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { Bone, Crop, Film, Grid3x3, Layers3, MoveHorizontal, Pencil, PersonStanding, Pipette, RefreshCw, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { api, materialFileUrl, materialImageUrl, type Material, type Project } from "../api";
 import { getLocale, useT } from "../i18n";
 import { useModalEscClose } from "../hooks/useModalEscClose";
@@ -8,6 +8,7 @@ import { askConfirm, notify } from "../notice";
 import { SOURCE_LABEL_KEYS } from "../sourceLabel";
 import { useServerConfig } from "../config";
 import IconBtn from "./IconBtn";
+import ColorKeyModal from "./ColorKeyModal";
 import CropModal from "./CropModal";
 import GridSplitModal from "./GridSplitModal";
 import ActionGenModal from "./ActionGenModal";
@@ -42,6 +43,7 @@ export default function MaterialModal({ material: m, v, initialAction, onClose, 
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [count, setCount] = useState(1);
   const [crop, setCrop] = useState<{ blob: Blob; slot: "raw" | "processed" } | null>(null);
+  const [colorKeyImage, setColorKeyImage] = useState<Blob | null>(null);
   const [showSplit, setShowSplit] = useState(initialAction === "frame-split" || initialAction === "skeletal-split");
   const [splitLine, setSplitLine] = useState<"frame" | "skeletal">(initialAction === "skeletal-split" ? "skeletal" : "frame");
   const [showLayers, setShowLayers] = useState(false);
@@ -127,6 +129,22 @@ export default function MaterialModal({ material: m, v, initialAction, onClose, 
       setCrop(null);
       onChanged();
       onToast(t("msg.crop_done"));
+    });
+
+  const openColorKey = () =>
+    run(async () => {
+      const slot = m.processed_path ? "processed" : "raw";
+      const response = await fetch(materialImageUrl(m.id, v, slot));
+      if (!response.ok) throw new Error(t("msg.failed_to_read_material_image"));
+      setColorKeyImage(await response.blob());
+    });
+
+  const saveColorKey = (blob: Blob) =>
+    run(async () => {
+      await api.replaceMaterialImage(m.id, blob, "processed");
+      setColorKeyImage(null);
+      onChanged();
+      onToast(t("colorKey.saved"));
     });
 
   const doExtract = () =>
@@ -299,6 +317,9 @@ export default function MaterialModal({ material: m, v, initialAction, onClose, 
               <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn" disabled={busy} onClick={openCrop}>
                 <Crop size={14} /> {t("msg.crop")}
               </motion.button>
+              <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn" disabled={busy} onClick={openColorKey}>
+                <Pipette size={14} /> {t("colorKey.action")}
+              </motion.button>
               <motion.button
                 type="button"
                 whileTap={{ scale: 0.95 }}
@@ -429,6 +450,12 @@ export default function MaterialModal({ material: m, v, initialAction, onClose, 
               onConfirm={doCrop}
               onClose={() => setCrop(null)}
             />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {colorKeyImage && (
+            <ColorKeyModal image={colorKeyImage} title={m.name} onConfirm={saveColorKey} onClose={() => setColorKeyImage(null)} />
           )}
         </AnimatePresence>
 
